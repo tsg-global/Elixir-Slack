@@ -78,8 +78,19 @@ defmodule Slack.Bot do
 
   @doc false
   def onconnect(_websocket_request, %{slack: slack, process_state: process_state, bot_handler: bot_handler} = state) do
-    {:ok, new_process_state} = bot_handler.handle_connect(slack, process_state)
-    {:ok, %{state | process_state: new_process_state}}
+    case bot_handler.handle_connect(slack, process_state) do
+      {:ok, new_process_state} ->
+        {:ok, %{state | process_state: new_process_state}}
+
+      {:ok, new_process_state, keepalive} ->
+        {:ok, %{state | process_state: new_process_state}, keepalive}
+
+      {:reply, message, new_process_state} ->
+        {:reply, message, %{state | process_state: new_process_state}}
+
+      {:close, reason, new_process_state} ->
+        {:close, reason, %{state | process_state: new_process_state}}
+    end
   end
 
   @doc false
@@ -89,8 +100,16 @@ defmodule Slack.Bot do
 
   def ondisconnect(reason, %{slack: slack, process_state: process_state, bot_handler: bot_handler} = state) do
     try do
-      bot_handler.handle_close(reason, slack, process_state)
-      {:close, reason, state}
+      case bot_handler.handle_close(reason, slack, process_state) do
+        {:ok, new_process_state} ->
+          {:ok, %{state | process_state: new_process_state}}
+
+        {:reconnect, new_process_state} ->
+          {:reconnect, %{state | process_state: new_process_state}}
+
+        {:close, reason, new_process_state} ->
+          {:close, reason, %{state | process_state: new_process_state}}
+      end
     rescue
       e ->
         handle_exception(e)
@@ -101,8 +120,14 @@ defmodule Slack.Bot do
   @doc false
   def websocket_info(message, _connection, %{slack: slack, process_state: process_state, bot_handler: bot_handler} = state) do
     try do
-      {:ok, new_process_state} = bot_handler.handle_info(message, slack, process_state)
-      {:ok, %{state | process_state: new_process_state}}
+      case bot_handler.handle_info(message, slack, process_state) do
+        {:reply, frame, new_process_state} -> {:reply, frame, %{state | process_state: new_process_state}}
+        {:noreply, new_process_state} -> {:ok, %{state | process_state: new_process_state}}
+        {:ok, new_process_state} -> {:ok, %{state | process_state: new_process_state}}
+
+        {:close, reason, new_process_state} ->
+          {:close, reason, %{state | process_state: new_process_state}}
+      end
     rescue
       e ->
         handle_exception(e)
@@ -111,7 +136,16 @@ defmodule Slack.Bot do
   end
 
   @doc false
-  def websocket_terminate(_reason, _conn, _state), do: :ok
+  def websocket_terminate(reason, _conn, %{process_state: process_state, bot_handler: bot_handler} = state) do
+    try do
+      bot_handler.terminate(reason, process_state)
+      :ok
+    rescue
+      e ->
+        handle_exception(e)
+        :ok
+    end
+  end
 
   @doc false
   def websocket_handle({:text, message}, _conn, %{slack: slack, process_state: process_state, bot_handler: bot_handler} = state) do
