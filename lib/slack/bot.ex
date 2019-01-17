@@ -139,7 +139,7 @@ defmodule Slack.Bot do
       end
     rescue
       e ->
-        handle_exception(e)
+        handle_exception(e, System.stacktrace())
         {:close, reason, state}
     end
   end
@@ -161,19 +161,19 @@ defmodule Slack.Bot do
       end
     rescue
       e ->
-        handle_exception(e)
+        handle_exception(e, System.stacktrace())
         {:ok, state}
     end
   end
 
   @doc false
-  def websocket_terminate(reason, _conn, %{process_state: process_state, bot_handler: bot_handler} = state) do
+  def websocket_terminate(reason, _conn, %{process_state: process_state, bot_handler: bot_handler}) do
     try do
       bot_handler.terminate(reason, process_state)
       :ok
     rescue
       e ->
-        handle_exception(e)
+        handle_exception(e, System.stacktrace())
         :ok
     end
   end
@@ -199,7 +199,7 @@ defmodule Slack.Bot do
           {:ok, new_process_state} = bot_handler.handle_event(message, slack, process_state)
           new_process_state
         rescue
-          e -> handle_exception(e)
+          e -> handle_exception(e, System.stacktrace())
         end
       else
         process_state
@@ -223,10 +223,10 @@ defmodule Slack.Bot do
     |> Poison.Parser.parse!(keys: :atoms)
   end
 
-  defp handle_exception(e) do
+  defp handle_exception(e, stacktrace) do
     message = Exception.message(e)
     Logger.error(message)
-    System.stacktrace() |> Exception.format_stacktrace() |> Logger.error()
+    stacktrace |> Exception.format_stacktrace() |> Logger.error()
     raise message
   end
 end
